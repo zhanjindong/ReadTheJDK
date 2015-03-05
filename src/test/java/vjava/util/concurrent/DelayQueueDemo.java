@@ -28,7 +28,7 @@ public class DelayQueueDemo {
 
 			queue.add(new DelayTask(60000, "task " + 3));
 
-			// 因为DelayQueue使用的是重入锁，所以当第一个任务还有到执行的时候，其他的线程可以获取到锁并向队列中加入新的任务。
+			// 因为DelayQueue使用的是重入锁，所以当第一个任务还有到执行的时候(Condition.await)，其他的线程可以获取到锁并向队列中加入新的任务。
 			new Thread(new Runnable() {
 
 				@Override
@@ -39,6 +39,7 @@ public class DelayQueueDemo {
 						e.printStackTrace();
 					}
 					queue.add(new DelayTask(5000, "task " + 1));
+					System.out.println("add success by other thread");
 				}
 			}).start();
 
