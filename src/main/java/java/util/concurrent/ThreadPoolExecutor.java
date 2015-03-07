@@ -1077,34 +1077,58 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			int rs = runStateOf(c);
 
 			// Check if queue empty only if necessary.
+			// 1.rs > SHUTDOWN 所以rs至少等于STOP,这时不再处理队列中的任务
+			// 2.rs = SHUTDOWN 所以rs>=STOP肯定不成立，这时还需要处理队列中的任务除非队列为空
+			// 这两种情况都会返回null让runWoker退出while循环也就是当前线程结束了，所以必须要decrement
+			// wokerCount
 			if (rs >= SHUTDOWN && (rs >= STOP || workQueue.isEmpty())) {
+				// 递减workerCount值
 				decrementWorkerCount();
 				return null;
 			}
 
+			// 标记从队列中取任务时是否设置超时时间
 			boolean timed; // Are workers subject to culling?
 
+			// 1.RUNING状态
+			// 2.SHUTDOWN状态，但队列中还有任务需要执行
 			for (;;) {
 				int wc = workerCountOf(c);
+
+				// 1.core thread允许被超时，那么超过corePoolSize的的线程必定有超时
+				// 2.allowCoreThreadTimeOut == false && wc >
+				// corePoolSize时，一般都是这种情况，core thread即使空闲也不会被回收，只要超过的线程才会
 				timed = allowCoreThreadTimeOut || wc > corePoolSize;
 
+				// 从addWorker可以看到一般wc不会大于maximumPoolSize，所以更关心后面半句的情形：
+				// 1. timedOut == false 第一次执行循环， 从队列中取出任务不为null方法返回 或者
+				// poll出异常了重试
+				// 2.timeOut == true && timed ==
+				// false:看后面的代码workerQueue.poll超时时timeOut才为true，
+				// 并且timed要为false，这两个条件相悖不可能同时成立（既然有超时那么timed肯定为true）
+				// 所以超时不会继续执行而是return null结束线程。（重点：线程是如何超时的？？？）
 				if (wc <= maximumPoolSize && !(timedOut && timed))
 					break;
+
+				// workerCount递减，结束当前thread
 				if (compareAndDecrementWorkerCount(c))
 					return null;
 				c = ctl.get(); // Re-read ctl
+				// 需要重新检查线程池状态，因为上述操作过程中线程池可能被SHUTDOWN
 				if (runStateOf(c) != rs)
 					continue retry;
 				// else CAS failed due to workerCount change; retry inner loop
 			}
 
 			try {
+				// 1.以指定的超时时间从队列中取任务
+				// 2.core thread没有超时
 				Runnable r = timed ? workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) : workQueue.take();
 				if (r != null)
 					return r;
-				timedOut = true;
+				timedOut = true;// 超时
 			} catch (InterruptedException retry) {
-				timedOut = false;
+				timedOut = false;// 线程被中断重试
 			}
 		}
 	}
@@ -1154,8 +1178,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		Runnable task = w.firstTask;
 		w.firstTask = null;
 		w.unlock(); // allow interrupts
+		// 用于标识是否异常终止，finally中processWorkerExit的方法会有不同逻辑
 		boolean completedAbruptly = true;
 		try {
+			// 如果getTask返回null那么getTask中会将workerCount递减，如果异常了这个递减操作会在processWorkerExit中处理
 			while (task != null || (task = getTask()) != null) {
 				w.lock();
 				// If pool is stopping, ensure thread is interrupted;
@@ -1170,7 +1196,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 					beforeExecute(wt, task);
 					Throwable thrown = null;
 					try {
-						task.run();
+						task.run();// 执行用户任务
 					} catch (RuntimeException x) {
 						thrown = x;
 						throw x;
@@ -1181,6 +1207,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 						thrown = x;
 						throw new Error(x);
 					} finally {
+						// 和beforeExecute一样，留给子类去重载
 						afterExecute(task, thrown);
 					}
 				} finally {
