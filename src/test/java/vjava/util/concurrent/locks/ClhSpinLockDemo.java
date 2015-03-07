@@ -57,7 +57,6 @@ class ClhSpinLock {
 }
 
 public class ClhSpinLockDemo {
-
 	public static void main(String[] args) {
 		ClhSpinLock lock = new ClhSpinLock();
 		lock.lock();
