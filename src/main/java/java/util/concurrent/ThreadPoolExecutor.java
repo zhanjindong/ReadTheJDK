@@ -635,6 +635,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			return getState() != 0;
 		}
 
+		// 参数没用到写死0和1
 		protected boolean tryAcquire(int unused) {
 			if (compareAndSetState(0, 1)) {
 				setExclusiveOwnerThread(Thread.currentThread());
@@ -704,6 +705,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 * might make termination possible -- reducing worker count or removing
 	 * tasks from the queue during shutdown. The method is non-private to allow
 	 * access from ScheduledThreadPoolExecutor.
+	 * <p>
+	 * 该方法尝试终止线程池，也就是将runState转换为TERMINATED。在任何可能导致的终止的动作后执行：
+	 * 减少wokerCount或SHUTDOWN状态下从队列中移除任务。
 	 */
 	final void tryTerminate() {
 		for (;;) {
@@ -926,7 +930,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			if (rs >= SHUTDOWN && !(rs == SHUTDOWN && firstTask == null && !workQueue.isEmpty()))
 				return false;
 
-			// 走的到这的情景：
+			// 走到这的情景：
 			// 1.线程池状态为RUNNING
 			// 2.线程池状态为TIDYING
 			for (;;) {
@@ -942,6 +946,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			}
 		}
 
+		// wokerCount递增成功
+
 		boolean workerStarted = false;
 		boolean workerAdded = false;
 		Worker w = null;
@@ -950,6 +956,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			w = new Worker(firstTask);
 			final Thread t = w.thread;
 			if (t != null) {
+				// 并发的访问线程池workers对象必须加锁
 				mainLock.lock();
 				try {
 					// Recheck while holding lock.
@@ -958,10 +965,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 					int c = ctl.get();
 					int rs = runStateOf(c);
 
+					// RUNNING状态 || SHUTDONW状态下清理队列中剩余的任务
 					if (rs < SHUTDOWN || (rs == SHUTDOWN && firstTask == null)) {
 						if (t.isAlive()) // precheck that t is startable
 							throw new IllegalThreadStateException();
+						// 将新启动的线程添加到线程池中
 						workers.add(w);
+						// 更新largestPoolSize
 						int s = workers.size();
 						if (s > largestPoolSize)
 							largestPoolSize = s;
@@ -970,13 +980,17 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 				} finally {
 					mainLock.unlock();
 				}
+				// 启动新添加的线程，这个线程首先执行firstTask，然后不停的从队列中取任务执行
+				// 当等待keepAlieTime还没有任务执行则该线程结束。见runWoker和getTask方法的代码。
 				if (workerAdded) {
-					t.start();
+					t.start();// 最终执行的是ThreadPoolExecutor的runWoker方法
 					workerStarted = true;
 				}
 			}
 		} finally {
+			// 线程启动失败，则从wokers中移除w并递减wokerCount
 			if (!workerStarted)
+				// 递减wokerCount会触发tryTerminate方法
 				addWorkerFailed(w);
 		}
 		return workerStarted;
@@ -1152,6 +1166,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 						&& !wt.isInterrupted())
 					wt.interrupt();
 				try {
+					// 任务执行前可以插入一些处理，子类重载该方法
 					beforeExecute(wt, task);
 					Throwable thrown = null;
 					try {
