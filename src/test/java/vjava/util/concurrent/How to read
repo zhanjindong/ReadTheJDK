@@ -1,0 +1,39 @@
+Tomcat的ThreadPoolExecutor → ThreadPoolExecutor → Woker → AbstractQueuedSynchronizer
+→ AbstractQueuedSynchronizer$Node → CLH lock queue & Spin lock
+
+AbstractQueuedSynchronizer → LockSupport(用来park和unpark线程的)
+
+
+AQS是核心：
+
+http://www.zavakid.com/2012/10/12/aqs_1/
+http://whitesock.iteye.com/blog/1336920
+http://www.ibm.com/developerworks/cn/java/j-jtp10264/index.html
+
+锁 和 同步的关系
+
+synchronized 同步原语
+Object.wait
+Object.notify
+
+ReentrantLock
+Spin Lock
+
+
+ReentrantLock的语义其实模仿了下面synchronized的：
+synchronized(this){
+	synchronized(this){
+		...
+	}
+}
+
+生产者-消费者问题
+读者-写者问题 读优先或写优先
+
+PV操作
+
+饥饿
+死锁
+竞争
+线程安全
+

@@ -1,0 +1,5 @@
+线程池有哪些状态？各个状态之间的转换
+线程池线程是如何处理超时的？ 看getTask方法
+如何停止线程池的？看tryTerminate方法
+如何SHUTDOWN状态下执行队列中的任务？ 看execute和addWorker方法
+线程池中线程是如何同步的？看AQS

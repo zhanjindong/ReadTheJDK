@@ -1,0 +1,13 @@
+伪唤醒
+
+A thread can also wake up without being notified, interrupted, or timing out, a so-called spurious wakeup. While this will rarely occur in practice, applications must guard against it by testing for the condition that should have caused the thread to be awakened, and continuing to wait if the condition is not satisfied. In other words, waits should always occur in loops, like this one: 
+
+     synchronized (obj) {
+         while (<condition does not hold>)
+             obj.wait(timeout);
+         ... // Perform action appropriate to condition
+     }
+ 
+(For more information on this topic, see Section 3.2.3 in Doug Lea's "Concurrent Programming in Java (Second Edition)" (Addison-Wesley, 2000), or Item 50 in Joshua Bloch's "Effective Java Programming Language Guide" (Addison-Wesley, 2001). 
+
+可以看Object的wait方法说明。
