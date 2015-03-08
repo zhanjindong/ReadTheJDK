@@ -4,7 +4,9 @@ Tomcat的ThreadPoolExecutor → ThreadPoolExecutor → Woker → AbstractQueuedS
 AbstractQueuedSynchronizer → LockSupport(用来park和unpark线程的)
 
 
-AQS是核心：
+AQS是核心：http://gee.cs.oswego.edu/dl/papers/aqs.pdf
+常见的AQS:http://blog.csdn.net/vernonzheng/article/details/8275624
+
 
 http://www.zavakid.com/2012/10/12/aqs_1/
 http://whitesock.iteye.com/blog/1336920
