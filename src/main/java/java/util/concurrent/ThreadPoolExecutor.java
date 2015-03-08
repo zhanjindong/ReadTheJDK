@@ -712,9 +712,22 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	final void tryTerminate() {
 		for (;;) {
 			int c = ctl.get();
+			// 以下状态直接返回：
+			// 1.线程池还处于RUNNING状态
+			// 2.SHUTDOWN状态但是任务队列非空
+			// 3.runState >= TIDYING 线程池已经停止了或在停止了
 			if (isRunning(c) || runStateAtLeast(c, TIDYING) || (runStateOf(c) == SHUTDOWN && !workQueue.isEmpty()))
 				return;
+
+			// 只能是以下情形会继续下面的逻辑：结束线程池。
+			// 1.SHUTDOWN状态，这时不再接受新任务而且任务队列也空了
+			// 2.STOP状态，当调用了shutdownNow方法
+
+			// workerCount不为0则还不能停止线程池,而且这时线程都处于空闲等待的状态
+			// 需要中断让线程“醒”过来，醒过来的线程才能继续处理shutdown的信号。
 			if (workerCountOf(c) != 0) { // Eligible to terminate
+				// runWoker方法中w.unlock就是为了可以被中断,getTask方法也处理了中断。
+				// ONLY_ONE:这里只需要中断1个线程去处理shutdown信号就可以了。
 				interruptIdleWorkers(ONLY_ONE);
 				return;
 			}
@@ -722,11 +735,15 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			final ReentrantLock mainLock = this.mainLock;
 			mainLock.lock();
 			try {
+				// 进入TIDYING状态
 				if (ctl.compareAndSet(c, ctlOf(TIDYING, 0))) {
 					try {
+						// 子类重载：一些资源清理工作
 						terminated();
 					} finally {
+						// TERMINATED状态
 						ctl.set(ctlOf(TERMINATED, 0));
+						// 继续awaitTermination
 						termination.signalAll();
 					}
 					return;
@@ -926,13 +943,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			// false)，任务为null && 队列为空
 			// 最后一种情况也就是说SHUTDONW状态下，如果队列不为空还得接着往下执行，为什么？add一个null任务目的到底是什么？
 			// 看execute方法只有workCount==0的时候firstTask才会为null结合这里的条件就是线程池SHUTDOWN了不再接受新任务
-			// 但是此时队列不为空，那么还得创建线程把任务给执行完才行，也就是TIDYING状态
+			// 但是此时队列不为空，那么还得创建线程把任务给执行完才行。
 			if (rs >= SHUTDOWN && !(rs == SHUTDOWN && firstTask == null && !workQueue.isEmpty()))
 				return false;
 
-			// 走到这的情景：
+			// 走到这的情形：
 			// 1.线程池状态为RUNNING
-			// 2.线程池状态为TIDYING
+			// 2.SHUTDOWN状态，但队列中还有任务需要执行
 			for (;;) {
 				int wc = workerCountOf(c);
 				if (wc >= CAPACITY || wc >= (core ? corePoolSize : maximumPoolSize))
@@ -1029,29 +1046,40 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 *            if the worker died due to user exception
 	 */
 	private void processWorkerExit(Worker w, boolean completedAbruptly) {
-		if (completedAbruptly) // If abrupt, then workerCount wasn't adjusted
+		// 正常的话再runWorker的getTask方法workerCount已经被减一了
+		if (completedAbruptly)
 			decrementWorkerCount();
 
 		final ReentrantLock mainLock = this.mainLock;
 		mainLock.lock();
 		try {
+			// 累加线程的completedTasks
 			completedTaskCount += w.completedTasks;
+			// 从线程池中移除超时或者出现异常的线程
 			workers.remove(w);
 		} finally {
 			mainLock.unlock();
 		}
 
+		// 尝试停止线程池
 		tryTerminate();
 
 		int c = ctl.get();
+		// runState为RUNNING或SHUTDOWN
 		if (runStateLessThan(c, STOP)) {
+			// 线程不是异常结束
 			if (!completedAbruptly) {
+				// 线程池最小空闲数，允许core thread超时就是0，否则就是corePoolSize
 				int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
+				// 如果min == 0但是队列不为空要保证有1个线程来执行队列中的任务
 				if (min == 0 && !workQueue.isEmpty())
 					min = 1;
+				// 线程池还不为空那就不用担心了
 				if (workerCountOf(c) >= min)
 					return; // replacement not needed
 			}
+			// 1.线程异常退出
+			// 2.线程池为空，但是队列中还有任务没执行，看addWoker方法对这种情况的处理
 			addWorker(null, false);
 		}
 	}
@@ -1179,6 +1207,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		w.firstTask = null;
 		w.unlock(); // allow interrupts
 		// 用于标识是否异常终止，finally中processWorkerExit的方法会有不同逻辑
+		// 为true的情况：1.执行任务抛出异常；2.被中断。
 		boolean completedAbruptly = true;
 		try {
 			// 如果getTask返回null那么getTask中会将workerCount递减，如果异常了这个递减操作会在processWorkerExit中处理
@@ -1216,8 +1245,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 					w.unlock();
 				}
 			}
+
 			completedAbruptly = false;
 		} finally {
+			// 结束线程的一些清理工作
 			processWorkerExit(w, completedAbruptly);
 		}
 	}
@@ -1461,6 +1492,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 * This method does not wait for previously submitted tasks to complete
 	 * execution. Use {@link #awaitTermination awaitTermination} to do that.
 	 * 
+	 * <p>
+	 * runState置为SHUTDOWN不再接受新任务但会执行完对列中的任务。
+	 * 
 	 * @throws SecurityException
 	 *             {@inheritDoc}
 	 */
@@ -1469,7 +1503,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		mainLock.lock();
 		try {
 			checkShutdownAccess();
+			// 线程池状态设为SHUTDOWN，如果已经至少是这个状态那么则直接返回
 			advanceRunState(SHUTDOWN);
+			// 注意这里是中断所有的线程：runWorker中等待的线程被中断 → 进入processWorkerExit →
+			// tryTerminate方法中会保证队列中剩余的任务得到执行。
 			interruptIdleWorkers();
 			onShutdown(); // hook for ScheduledThreadPoolExecutor
 		} finally {
@@ -1493,6 +1530,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 * actively executing tasks. This implementation cancels tasks via
 	 * {@link Thread#interrupt}, so any task that fails to respond to interrupts
 	 * may never terminate.
+	 * <p>
+	 * runState置为STOP。和shutdown方法的区别，这个方法会停止执行任务的线程。
 	 * 
 	 * @throws SecurityException
 	 *             {@inheritDoc}
@@ -1503,8 +1542,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		mainLock.lock();
 		try {
 			checkShutdownAccess();
+			// STOP状态：不再接受新任务且不再执行队列中的任务。
 			advanceRunState(STOP);
+			// 中断所有线程
 			interruptWorkers();
+			// 返回队列中还没有被执行的任务。
 			tasks = drainQueue();
 		} finally {
 			mainLock.unlock();
