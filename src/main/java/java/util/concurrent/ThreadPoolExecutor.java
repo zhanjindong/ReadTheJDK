@@ -594,6 +594,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 * suppress interrupts until the thread actually starts running tasks, we
 	 * initialize lock state to a negative value, and clear it upon start (in
 	 * runWorker).
+	 * <p>
+	 * 通过AQS框架实现了一个简单的非重入的互斥锁，
+	 * 之所以不用ReentrantLock是为了避免任务代码中修改线程池的方法如果setCorePoolSize。
+	 * 
+	 * 实现互斥锁主要目的是为了中断的时候判断线程是在空闲还是运行，
+	 * 看interruptIdleWorkers和interruptWorkers两个方法的区别
+	 * ，interruptWorkers中调用了interruptIfStarted。
 	 */
 	private final class Worker extends AbstractQueuedSynchronizer implements Runnable {
 		/**
@@ -616,6 +623,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		 *            the first task (null if none)
 		 */
 		Worker(Runnable firstTask) {
+			// 直到执行runWorker方法，否则不允许中断。interruptIfStarted方法。
 			setState(-1); // inhibit interrupts until runWorker
 			this.firstTask = firstTask;
 			this.thread = getThreadFactory().newThread(this);
@@ -635,12 +643,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			return getState() != 0;
 		}
 
-		// 参数没用到写死0和1
+		// state只有0和1，互斥
 		protected boolean tryAcquire(int unused) {
 			if (compareAndSetState(0, 1)) {
 				setExclusiveOwnerThread(Thread.currentThread());
-				return true;
+				return true;// 成功获得锁
 			}
+			// 线程进入等待队列
 			return false;
 		}
 
@@ -668,6 +677,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
 		void interruptIfStarted() {
 			Thread t;
+			// 初始化时state == -1
 			if (getState() >= 0 && (t = thread) != null && !t.isInterrupted()) {
 				try {
 					t.interrupt();
@@ -790,6 +800,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		mainLock.lock();
 		try {
 			for (Worker w : workers)
+				// Worker的这个方法保证了中断的都是真正启动了的线程。
 				w.interruptIfStarted();
 		} finally {
 			mainLock.unlock();
@@ -801,6 +812,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 * being locked) so they can check for termination or configuration changes.
 	 * Ignores SecurityExceptions (in which case some threads may remain
 	 * uninterrupted).
+	 * 
+	 * <p>
+	 * 中断空闲的线程。
 	 * 
 	 * @param onlyOne
 	 *            If true, interrupt at most one worker. This is called only
@@ -821,6 +835,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		try {
 			for (Worker w : workers) {
 				Thread t = w.thread;
+				// w.tryLock能获取到锁，说明该线程没有在运行，因为runWorker中执行任务前会先lock，
+				// 因此保证了中断的肯定是空闲的线程。
 				if (!t.isInterrupted() && w.tryLock()) {
 					try {
 						t.interrupt();
@@ -1205,7 +1221,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 		Thread wt = Thread.currentThread();
 		Runnable task = w.firstTask;
 		w.firstTask = null;
-		w.unlock(); // allow interrupts
+		// Worker的构造函数中抑制了线程中断setState(-1)，所以这里需要unlock从而允许中断
+		w.unlock();
 		// 用于标识是否异常终止，finally中processWorkerExit的方法会有不同逻辑
 		// 为true的情况：1.执行任务抛出异常；2.被中断。
 		boolean completedAbruptly = true;
