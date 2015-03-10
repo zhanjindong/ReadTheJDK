@@ -596,7 +596,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 * runWorker).
 	 * <p>
 	 * 通过AQS框架实现了一个简单的非重入的互斥锁，
-	 * 之所以不用ReentrantLock是为了避免任务代码中修改线程池的方法如果setCorePoolSize。
+	 * 之所以不用ReentrantLock是为了避免任务代码中修改线程池的方法如setCorePoolSize
+	 * ，因为ReentrantLock是可重入的。
 	 * 
 	 * 实现互斥锁主要目的是为了中断的时候判断线程是在空闲还是运行，
 	 * 看interruptIdleWorkers和interruptWorkers两个方法的区别
