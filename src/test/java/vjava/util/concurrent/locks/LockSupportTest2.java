@@ -2,6 +2,8 @@ package vjava.util.concurrent.locks;
 
 import java.util.concurrent.locks.LockSupport;
 
+//LockSupport可以响应中断
+//所以AQS中的acquire分为中断和非中断
 public class LockSupportTest2 {
 	public static void main(String[] args) throws InterruptedException {
 

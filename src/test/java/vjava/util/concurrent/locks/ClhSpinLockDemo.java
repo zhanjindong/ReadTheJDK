@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * 
  */
 class ClhSpinLock {
-	private final ThreadLocal<Node> pred;
+	private final ThreadLocal<Node> prev;
 	private final ThreadLocal<Node> node;
 	private final AtomicReference<Node> tail = new AtomicReference<Node>(new Node());
 
@@ -27,7 +27,7 @@ class ClhSpinLock {
 			}
 		};
 
-		this.pred = new ThreadLocal<Node>() {
+		this.prev = new ThreadLocal<Node>() {
 			protected Node initialValue() {
 				return null;
 			}
@@ -40,7 +40,7 @@ class ClhSpinLock {
 		// 一个CAS操作即可将当前线程对应的节点加入到队列中，
 		// 并且同时获得了predecessor节点的引用，然后就是等待predecessor释放锁
 		Node pred = this.tail.getAndSet(node);
-		this.pred.set(pred);
+		this.prev.set(pred);
 		while (pred.locked) {// 进入自旋
 		}
 	}
@@ -48,7 +48,7 @@ class ClhSpinLock {
 	public void unlock() {
 		final Node node = this.node.get();
 		node.locked = false;
-		this.node.set(this.pred.get());
+		this.node.set(this.prev.get());
 	}
 
 	private static class Node {
@@ -57,10 +57,24 @@ class ClhSpinLock {
 }
 
 public class ClhSpinLockDemo {
-	public static void main(String[] args) {
-		ClhSpinLock lock = new ClhSpinLock();
+	public static void main(String[] args) throws InterruptedException {
+		final ClhSpinLock lock = new ClhSpinLock();
 		lock.lock();
-		//lock.unlock();
-		lock.lock();
+
+		for (int i = 0; i < 10; i++) {
+			new Thread(new Runnable() {
+				@Override
+				public void run() {
+					lock.lock();
+					System.out.println(Thread.currentThread().getId() + " acquired the lock!");
+					lock.unlock();
+				}
+			}).start();
+			// 简单的让线程按照for循环的顺序阻塞在lock上
+			Thread.sleep(100);
+		}
+
+		System.out.println("main thread unlock!");
+		lock.unlock();
 	}
 }
