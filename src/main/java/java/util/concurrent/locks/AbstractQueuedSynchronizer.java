@@ -411,7 +411,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		/** Marker to indicate a node is waiting in exclusive mode 标记是独占模式 */
 		static final Node EXCLUSIVE = null;
 
-		/** waitStatus value to indicate thread has cancelled 代表线程已经被取消 */
+		/**
+		 * waitStatus value to indicate thread has cancelled 代表线程已经被取消
+		 */
 		static final int CANCELLED = 1;
 
 		/**
@@ -456,7 +458,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		 * The field is initialized to 0 for normal sync nodes, and CONDITION
 		 * for condition nodes. It is modified using CAS (or when possible,
 		 * unconditional volatile writes).
-		 * 
+		 * <p>
+		 * 结点的等待状态。
 		 * <p>
 		 * 用于控制线程的阻塞/唤醒，以及避免不必要的调用LockSupport的park/unpark方法。
 		 * CANCELLED=1、初始化=0、SIGNAL=-1、CONDITION=-2或PROPAGATE=-3。
@@ -835,6 +838,10 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	 * Checks and updates status for a node that failed to acquire. Returns true
 	 * if thread should block. This is the main signal control in all acquire
 	 * loops. Requires that pred == node.prev
+	 * <p>
+	 * 1.确定后继是否需要park;<br />
+	 * 2.跳过被取消的结点;<br />
+	 * 3.设置前继的waitStatus为SIGNAL.
 	 * 
 	 * @param pred
 	 *            node's predecessor holding status
@@ -844,7 +851,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	 */
 	private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
 		int ws = pred.waitStatus;
-		if (ws == Node.SIGNAL)// 后续结点需要唤醒，返回true否则返回false
+		if (ws == Node.SIGNAL)// 前继结点已经准备好unpark其后继了，所以后继可以安全的park
 			/*
 			 * This node has already set status asking a release to signal it,
 			 * so it can safely park.
@@ -859,15 +866,16 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 				node.prev = pred = pred.prev;
 			} while (pred.waitStatus > 0);
 			pred.next = node;
-		} else {// CONDITION 或 PROPAGATE
+		} else {// 0 或 PROPAGATE (CONDITION用在ConditonObject，这里不会是这个值)
 			/**
 			 * waitStatus must be 0 or PROPAGATE. Indicate that we need a
 			 * signal, but don't park yet. Caller will need to retry to make
 			 * sure it cannot acquire before parking.
 			 * <p>
-			 * waitStatus 等于0或PROPAGATE说明线程在等待前继释放，但是还不需要park，线程在被park之前会先不停重试
-			 * 去acquire
+			 * waitStatus 等于0（初始化）或PROPAGATE。说明线程还没有park，会先重试 确定无法acquire到再park。
 			 */
+
+			// 更新pred结点waitStatus为SIGNAL
 			compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
 		}
 		return false;
@@ -922,13 +930,11 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		try {
 			boolean interrupted = false;
 			// 等待前继结点释放锁
-			// 自旋:为了避免竞争，只有当需要的时候才去tryAcquire:
-			// 1.前继结点是head;
-			// 2.前继结点的waitStatus == SIGNAL。
+			// 自旋re-check
 			for (;;) {
 				// 获取前继
 				final Node p = node.predecessor();
-				// 前继是head,说明next就是node了，则尝试获取锁，否则继续for循环判断。
+				// 前继是head,说明next就是node了，则尝试获取锁。
 				if (p == head && tryAcquire(arg)) {
 					// 前继出队，node成为head
 					setHead(node);
@@ -937,21 +943,16 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 					return interrupted;
 				}
 
-				// 走到这有两种情形：
-				// 1.p != head，还不需要去tryAcquire；
-				// 这种情况shouldParkAfterFailedAcquire肯定返回false，继续自旋。
-				//
-				// 2.p == head 但是tryAcquire失败了 。
-				// 这种情况shouldParkAfterFailedAcquire可能返回false，当前继结点的waitStatus !=
-				// SIGNAL 说明还没准备unpark，当前线程不需要park继续自旋。
-				//
-				// 也可能返回true，当前继结点的waitStatus == SIGNAL时，
-				// 意思是前继结点准备唤醒它后面的结点，也就是node
-				// 所以当前线程需要先park，线程阻塞在parkAndCheckInterrupt方法中。
-				// parkAndCheckInterrupt返回可能是前继unpark或线程被中断，整个方法会在下一个if判断中返回。
+				// p != head 或者 p == head但是tryAcquire失败了，那么
+				// 应该阻塞当前线程等待前继唤醒。阻塞之前会再重试一次，还需要设置前继的waitStaus为SIGNAL。
+
+				// 线程会阻塞在parkAndCheckInterrupt方法中。
+				// parkAndCheckInterrupt返回可能是前继unpark或线程被中断。
 				if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt())
 					// 说明当前线程是被中断唤醒的。
-					// 注意：线程被中断之后会继续走到if处去tryAcqure，也就是忽视中断。
+					// 注意：线程被中断之后会继续走到if处去判断，也就是会忽视中断。
+					// 除非碰巧线程中断后acquire成功了，那么根据Java的最佳实践，
+					// 需要重新设置线程的中断状态（acquire.selfInterrupt）。
 					interrupted = true;
 			}
 		} finally {
@@ -990,6 +991,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
 	/**
 	 * Acquires in exclusive timed mode.
+	 * <p>
+	 * 代码整体上跟{@link #acquireQueued}差不多。
 	 * 
 	 * @param arg
 	 *            the acquire argument
@@ -1010,8 +1013,10 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 					failed = false;
 					return true;
 				}
-				if (nanosTimeout <= 0)
+				if (nanosTimeout <= 0)// 超时
 					return false;
+				// nanosTimeout > spinForTimeoutThreshold
+				// 如果超时时间很短的话，自旋效率会更高。
 				if (shouldParkAfterFailedAcquire(p, node) && nanosTimeout > spinForTimeoutThreshold)
 					LockSupport.parkNanos(this, nanosTimeout);
 				long now = System.nanoTime();
@@ -1050,6 +1055,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 						return;
 					}
 				}
+
+				// p != head || r < 0
 				if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt())
 					interrupted = true;
 			}
@@ -1342,7 +1349,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	 * success or the thread is interrupted or the timeout elapses. This method
 	 * can be used to implement method {@link Lock#tryLock(long, TimeUnit)}.
 	 * <p>
-	 * 独占且支持超时模式获取： 带有超时时间，如果经过超时时间则会退出。
+	 * 独占且支持超时模式获取： 带有超时时间，如果超过超时时间则会退出。
 	 * 
 	 * @param arg
 	 *            the acquire argument. This value is conveyed to
