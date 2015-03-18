@@ -706,7 +706,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		 * from tail to find the actual non-cancelled successor.
 		 * <p>
 		 * 正常来说需要唤醒结点就是next，但如果next被取消了或者为null，<br />
-		 * 则需要通过tail指针从后往前遍历找到SIGNAL结点。
+		 * 则需要通过tail指针从后往前遍历找到没被取消的结点。
 		 */
 		Node s = node.next;
 		// s == null || s.waitStatus == CANCELLED
@@ -727,7 +727,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	 * unparkSuccessor of head if it needs signal.)
 	 */
 	private void doReleaseShared() {
-		/*
+		/**
 		 * Ensure that a release propagates, even if there are other in-progress
 		 * acquires/releases. This proceeds in the usual way of trying to
 		 * unparkSuccessor of head if it needs signal. But if it does not,
@@ -735,18 +735,24 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		 * continues. Additionally, we must loop in case a new node is added
 		 * while we are doing this. Also, unlike other uses of unparkSuccessor,
 		 * we need to know if CAS to reset status fails, if so rechecking.
+		 * <p>
 		 */
 		for (;;) {
 			Node h = head;
+			// 队列不为空且有后继结点
 			if (h != null && h != tail) {
 				int ws = h.waitStatus;
+				// 不管是共享还是独占只有结点状态为SIGNAL才尝试唤醒后继结点
 				if (ws == Node.SIGNAL) {
+					// 将waitStatus设置为0
 					if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
 						continue; // loop to recheck cases
-					unparkSuccessor(h);
+					unparkSuccessor(h);// 唤醒后继结点
+					// 如果状态为0则更新状态为PROPAGATE，更新失败则重试
 				} else if (ws == 0 && !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
 					continue; // loop on failed CAS
 			}
+			// 如果过程中head被修改了则重试。
 			if (h == head) // loop if head changed
 				break;
 		}
@@ -756,6 +762,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	 * Sets head of queue, and checks if successor may be waiting in shared
 	 * mode, if so propagating if either propagate > 0 or PROPAGATE status was
 	 * set.
+	 * <p>
+	 * 将node设置为head。如果当前结点acquire到了之后发现还有许可可以被获取，则继续释放自己的后继，
+	 * 后继会将这个操作传递下去。这就是PROPAGATE状态的含义。
 	 * 
 	 * @param node
 	 *            the node
@@ -765,7 +774,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	private void setHeadAndPropagate(Node node, int propagate) {
 		Node h = head; // Record old head for check below
 		setHead(node);
-		/*
+		/**
 		 * Try to signal next queued node if: Propagation was indicated by
 		 * caller, or was recorded (as h.waitStatus) by a previous operation
 		 * (note: this uses sign-check of waitStatus because PROPAGATE status
@@ -775,10 +784,23 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		 * The conservatism in both of these checks may cause unnecessary
 		 * wake-ups, but only when there are multiple racing acquires/releases,
 		 * so most need signals now or soon anyway.
+		 * <p>
+		 * 尝试唤醒后继的结点：<br />
+		 * propagate > 0说明许可还有能够继续被线程acquire;<br />
+		 * 或者 之前的head被设置为PROPAGATE(PROPAGATE可以被转换为SIGNAL)说明需要往后传递;<br />
+		 * 或者为null,我们还不确定什么情况。 <br />
+		 * 并且 后继结点是共享模式或者为如上为null。
+		 * <p>
+		 * 上面的检查有点保守，在有多个线程竞争获取/释放的时候可能会导致不必要的唤醒。<br />
+		 * 
 		 */
 		if (propagate > 0 || h == null || h.waitStatus < 0) {
 			Node s = node.next;
+			// 后继结是共享模式或者s == null（不知道什么情况）
+			// 如果后继是独占模式，那么即使剩下的许可大于0也不会继续往后传递唤醒操作
+			// 即使后面有结点是共享模式。
 			if (s == null || s.isShared())
+				// 唤醒后继结点
 				doReleaseShared();
 		}
 	}
@@ -1038,15 +1060,19 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	 *            the acquire argument
 	 */
 	private void doAcquireShared(int arg) {
+		// 添加队列
 		final Node node = addWaiter(Node.SHARED);
 		boolean failed = true;
 		try {
 			boolean interrupted = false;
+			// 等待前继释放并传递
 			for (;;) {
 				final Node p = node.predecessor();
 				if (p == head) {
-					int r = tryAcquireShared(arg);
+					int r = tryAcquireShared(arg);// 尝试获取
 					if (r >= 0) {
+						// 获取成功则前继出队，跟独占不同的是
+						// 会往后面结点传播唤醒的操作，保证剩下等待的线程能够尽快获取到剩下的许可。
 						setHeadAndPropagate(node, r);
 						p.next = null; // help GC
 						if (interrupted)
