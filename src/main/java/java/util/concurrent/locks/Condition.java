@@ -259,7 +259,8 @@ public interface Condition {
 
 	/**
 	 * Causes the current thread to wait until it is signalled.
-	 * 
+	 * <p>
+	 * 线程等待并且忽视中断。
 	 * <p>
 	 * The lock associated with this condition is atomically released and the
 	 * current thread becomes disabled for thread scheduling purposes and lies
@@ -507,7 +508,8 @@ public interface Condition {
 
 	/**
 	 * Wakes up one waiting thread.
-	 * 
+	 * <p>
+	 * 只会唤醒一个线程，这个线程必须重新获取关联的锁。
 	 * <p>
 	 * If any threads are waiting on this condition then one is selected for
 	 * waking up. That thread must then re-acquire the lock before returning
@@ -527,7 +529,8 @@ public interface Condition {
 
 	/**
 	 * Wakes up all waiting threads.
-	 * 
+	 * <p>
+	 * 唤醒所有等待的线程，所有线程都会尝试去获取相关联的锁。根据锁的类型，唤醒的线程数量不定。
 	 * <p>
 	 * If any threads are waiting on this condition then they are all woken up.
 	 * Each thread must re-acquire the lock before it can return from

@@ -596,7 +596,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 	 * runWorker).
 	 * <p>
 	 * 通过AQS框架实现了一个简单的非重入的互斥锁，
-	 * 之所以不用ReentrantLock是为了避免任务代码中修改线程池的方法如setCorePoolSize
+	 * 之所以不用ReentrantLock是为了避免任务代码中修改线程池的变量如setCorePoolSize
 	 * ，因为ReentrantLock是可重入的。
 	 * 
 	 * 实现互斥锁主要目的是为了中断的时候判断线程是在空闲还是运行，
@@ -1523,7 +1523,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 			checkShutdownAccess();
 			// 线程池状态设为SHUTDOWN，如果已经至少是这个状态那么则直接返回
 			advanceRunState(SHUTDOWN);
-			// 注意这里是中断所有的线程：runWorker中等待的线程被中断 → 进入processWorkerExit →
+			// 注意这里是中断所有空闲的线程：runWorker中等待的线程被中断 → 进入processWorkerExit →
 			// tryTerminate方法中会保证队列中剩余的任务得到执行。
 			interruptIdleWorkers();
 			onShutdown(); // hook for ScheduledThreadPoolExecutor

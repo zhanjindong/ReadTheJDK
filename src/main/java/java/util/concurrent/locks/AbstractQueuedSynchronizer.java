@@ -431,6 +431,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		/**
 		 * waitStatus value to indicate the next acquireShared should
 		 * unconditionally propagate
+		 * 代表后续结点会传播唤醒的操作
 		 */
 		static final int PROPAGATE = -3;
 
@@ -463,12 +464,6 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 		 * <p>
 		 * 用于控制线程的阻塞/唤醒，以及避免不必要的调用LockSupport的park/unpark方法。
 		 * CANCELLED=1、初始化=0、SIGNAL=-1、CONDITION=-2或PROPAGATE=-3。
-		 * <ul>
-		 * <li>SIGNAL：后继的结点处于blocked或即将处于blocked状态，需要当前结点release或cancel的时候唤醒它。</li>
-		 * <li>CANCELLED：</li>
-		 * <li>CONDITION:</li>
-		 * <li>PROPAGATE:</li>
-		 * </ul>
 		 */
 		volatile int waitStatus;
 
@@ -888,7 +883,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 				node.prev = pred = pred.prev;
 			} while (pred.waitStatus > 0);
 			pred.next = node;
-		} else {// 0 或 PROPAGATE (CONDITION用在ConditonObject，这里不会是这个值)
+		} else {// 0 、PROPAGATE、CONDITION
 			/**
 			 * waitStatus must be 0 or PROPAGATE. Indicate that we need a
 			 * signal, but don't park yet. Caller will need to retry to make
@@ -1433,6 +1428,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 	 *            can represent anything you like.
 	 */
 	public final void acquireShared(int arg) {
+		//如果没有许可了则入队等待
 		if (tryAcquireShared(arg) < 0)
 			doAcquireShared(arg);
 	}
