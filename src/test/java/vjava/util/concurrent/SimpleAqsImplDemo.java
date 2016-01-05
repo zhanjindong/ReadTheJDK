@@ -4,7 +4,7 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 
 /**
  * 
- * AQS的简单实现类。
+ * AQS的简单实现类。非重入的。
  * <p>
  * 其实这就是ThreadPoolExecutor$Worker的实现代码。
  * <p>

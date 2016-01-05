@@ -11,6 +11,6 @@ next是前继指向其后继的指针
 tail引用维护了FIFO的线程等待队列，每个等待的线程拥有各自的prev引用（Java中通过ThreadLocal保存），
 这样能保证所有等待线程的公平竞争，而且没有竞争同一个变量，每个线程只要等待自己的前继释放锁就可以了。
 CLH lock queue一般用来实现自旋锁（Spin lock），自旋锁简单来说就是通过循环来等待而不是睡眠——非阻塞算法，
-这样的好处是减小系统调用的开销。
+这样的好处是减小竞争和系统调用的开销。
 
-enqueue操作通过修改tail指针来完成，dequeue操作只要通过设置head就可以了，看AQS的setHead代码
+enqueue操作通过修改tail指针来完成，dequeue操作只要通过设置head就可以了。看AQS的setHead代码

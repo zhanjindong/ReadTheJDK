@@ -1,0 +1,79 @@
+Lock是基于AQS:公平锁 和 非公平锁 Lock的语义是通过AQS实现的。
+Condition用来同步和协调线程之间的操做
+Condition绑定到Lock
+await之前会释放锁，signal唤醒之后会重新获得锁
+
+
+公平是指竞争的时候时候公平（acquire），等待时间长的线程优先获取。
+重入指一个线程获得锁后可以重复获得锁，即可以多次acquire成功，acquire N次，就得按顺序release N次才能释放锁。
+即：
+lock
+	lock
+		……
+	unlock
+unlock
+
+Lock
+ReentrantLock：一个可重入的互斥锁，为Lock接口的主要实现，平时我们最常用的锁，实现了和synchronized相同的语义。
+ReadWriteLock：ReadWriteLock 维护了一对相关的锁，一个用于只读操作，另一个用于写入操作。
+ReentrantReadWriteLock：
+Semaphore：一个计数信号量。
+Condition:锁的关联条件，目的是允许线程获取锁并且查看等待的某一个条件是否满足。
+CyclicBarrier：一个同步辅助类，它允许一组线程互相等待，直到到达某个公共屏障点
+CountDownLatch : 一个线程(或者多个)， 等待另外N个线程完成某个事情之后才能执行。   CyclicBarrier        : N个线程相互等待，任何一个线程完成之前，所有的线程都必须等待。
+这样应该就清楚一点了，对于CountDownLatch来说，重点是那个“一个线程”, 是它在等待， 而另外那N的线程在把“某个事情”做完之后可以继续等待，可以终止。而对于CyclicBarrier来说，重点是那N个线程，他们之间任何一个没有完成，所有的线程都必须等待。
+
+CountDownLatch 是计数器, 线程完成一个就记一个, 就像 报数一样, 只不过是递减的.
+而CyclicBarrier更像一个水闸, 线程执行就想水流, 在水闸处都会堵住, 等到水满(线程到齐)了, 才开始泄流.
+
+
+RL lock 和 release方法其实委托给了Sync，这个接口有NonfairSync和FairSync两个实现类，都继承AQS，分别表示加锁的时候采取不公平还是公平的策略。
+公平还是不公平，主要体现体现在tryAcquire方法的实现：
+
+	final boolean nonfairTryAcquire(int acquires) {
+            final Thread current = Thread.currentThread();
+            int c = getState();
+            if (c == 0) {
+                if (compareAndSetState(0, acquires)) {
+                    setExclusiveOwnerThread(current);
+                    return true;
+                }
+            }
+            else if (current == getExclusiveOwnerThread()) {
+                int nextc = c + acquires;
+                if (nextc < 0) // overflow
+                    throw new Error("Maximum lock count exceeded");
+                setState(nextc);
+                return true;
+            }
+            return false;
+        }
+        
+        protected final boolean tryAcquire(int acquires) {
+            final Thread current = Thread.currentThread();
+            int c = getState();
+            if (c == 0) {
+                if (!hasQueuedPredecessors() &&
+                    compareAndSetState(0, acquires)) {
+                    setExclusiveOwnerThread(current);
+                    return true;
+                }
+            }
+            else if (current == getExclusiveOwnerThread()) {
+                int nextc = c + acquires;
+                if (nextc < 0)
+                    throw new Error("Maximum lock count exceeded");
+                setState(nextc);
+                return true;
+            }
+            return false;
+        }
+
+区别就是公平加锁时候调用的hasQueuedPredecessors方法，这个方法很简单用来判断等待队列中是否已经有其他线程再等待锁了，也就是按
+先来后到的顺序获取锁，反之就是线程抢占，谁抢到了锁算谁的。
+
+Condition咋await的时候会先释放锁，把线程加入condition queue等待，当线程被唤醒的时候会重新获取锁，Condition 的signal一次只会唤醒一个
+线程，signalAll会同时唤醒condition queue里的所有线程，这时候就存在公平性的问题。
+
+Condition的唤醒操做：将Node(线程)从condition queue取出放到sync queue队列中，并将waitStatus设置为SIGNAL意味着唤醒后继线程，
+这样一直传播下去所有线程都被唤醒。

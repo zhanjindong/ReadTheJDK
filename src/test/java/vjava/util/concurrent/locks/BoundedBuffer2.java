@@ -9,14 +9,19 @@ public class BoundedBuffer2 {
 	final Condition notFull = lock.newCondition();
 	final Condition notEmpty = lock.newCondition();
 
-	final Object[] items = new Object[100];
+	final Object[] items = new Object[10];
 	int putptr, takeptr, count;
 
 	public void put(Object x) throws InterruptedException {
+		System.out.println(Thread.currentThread().getName());
 		lock.lock();
 		try {
-			while (count == items.length)
+			System.out.println(Thread.currentThread().getName());
+			while (count == items.length) {
+				System.out.println(Thread.currentThread().getName() + " await");
 				notFull.await();
+			}
+			System.out.println(Thread.currentThread().getName() + " put:" + x);
 			items[putptr] = x;
 			if (++putptr == items.length)
 				putptr = 0;
@@ -47,9 +52,9 @@ public class BoundedBuffer2 {
 
 		private BoundedBuffer2 q;
 
-		Producer(BoundedBuffer2 q) {
+		Producer(BoundedBuffer2 q, String name) {
 			this.q = q;
-			new Thread(this, "Producer").start();
+			new Thread(this, "Producer-" + name).start();
 		}
 
 		int i = 0;
@@ -59,6 +64,7 @@ public class BoundedBuffer2 {
 			while (true) {
 				try {
 					q.put(i++);
+					Thread.sleep(1000);
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
@@ -88,7 +94,7 @@ public class BoundedBuffer2 {
 
 	public static void main(String[] args) throws InterruptedException {
 		final BoundedBuffer2 buffer = new BoundedBuffer2();
-		new Thread(new Producer(buffer)).start();
-		new Thread(new Consumer(buffer)).start();
+		new Producer(buffer, "1");
+		// new Consumer(buffer); 
 	}
 }
